@@ -166,10 +166,12 @@ contract GolffPet is ERC721Enumerable, Ownable {
     }
 
     function getCombatEffectiveness(uint256 tokenId) public view returns (string memory){
+        require(_tokenIds.current() >= tokenId, 'GolffPet:query for nonexistent token');
         return combatEffectiveness[attributeIndex[tokenId]];
     }
 
     function getRarity(uint256 tokenId) public view returns (string memory){
+        require(_tokenIds.current() >= tokenId, 'GolffPet:query for nonexistent token');
         return rarity[attributeIndex[tokenId]];
     }
 
