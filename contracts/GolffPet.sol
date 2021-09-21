@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "./base64.sol";
 
 contract GolffPet is ERC721Enumerable, Ownable {
@@ -12,9 +13,7 @@ contract GolffPet is ERC721Enumerable, Ownable {
     using Counters for Counters.Counter;
     Counters.Counter private _tokenIds;
 
-    EnumerableSet.AddressSet private minters;
-
-    string constant private preRevealImageUrl = 'ipfs://Qma1CQepRezX6kAuw3YDdCx23qNUQdaDbXccQfgLRdp8iG';
+    bytes32 public merkleRoot;
 
     string public revealedCollectionBaseURL;
     // user_address--id
@@ -22,8 +21,7 @@ contract GolffPet is ERC721Enumerable, Ownable {
     // id--user_address
     mapping(uint256 => address) public claimTokenOwners;
 
-
-    uint256 constant private MAX_SPACE_SUPPLY = 99;
+    uint256 constant public MAX_SPACE_SUPPLY = 99;
 
     uint256 constant private HIGHER_TOKEN_COUNT = 1;
 
@@ -31,9 +29,9 @@ contract GolffPet is ERC721Enumerable, Ownable {
 
     uint256 constant private INFERIOR_TOKEN_COUNT = 5;
 
-    uint256[] private boardFactor = [1010000000000000000, 1020000000000000000, 1030000000000000000, 1050000000000000000];
+    uint256[] private boardFactor = [1050000000000000000, 1060000000000000000, 1070000000000000000, 1100000000000000000];
 
-    string[] private combatEffectiveness = ["100", "200", "300", "500"];
+    string[] private combatEffectiveness = ["500", "600", "700", "1000"];
 
     string[] private rarity = ["90/99", "5/99", "3/99", "1/99"];
 
@@ -41,17 +39,23 @@ contract GolffPet is ERC721Enumerable, Ownable {
 
     mapping(uint256 => uint256) private boardFactorCount;
 
+    uint256[] private initAttributeIndex = [2,1,1,0,0,0,0,0,0,0];
 
     event Claim(address indexed owner, uint256 tokenId);
 
-    constructor() ERC721('Golff Pet', "Golff Pet") {
-
+    constructor(address account,string memory _ipfsHash,bytes32 merkleRoot_ ) ERC721('Golff Pet', "Golff Pet") {
+        merkleRoot = merkleRoot_;
+        setRevealedCollectionBaseURL(_ipfsHash);
+        initClaim(account);
     }
 
-    function claim() public returns (uint256){
+    function claim(uint256 index, bytes32[] calldata merkleProof) public returns (uint256){
         require(totalSupply() + 1 <= MAX_SPACE_SUPPLY, "GolffPet:claim would exceed max supply");
-        require(isMinter(msg.sender), 'GolffPet:claim only allowed from Space');
         require(!isClaimed(msg.sender), 'GolffPet:already claimed');
+        uint256 amount = 1000000000000000000;
+        bytes32 node = keccak256(abi.encodePacked(index, msg.sender, amount));
+        require(MerkleProof.verify(merkleProof, merkleRoot, node), 'MerkleDistributor: Invalid proof.');
+
         _tokenIds.increment();
         uint256 newTokenId = _tokenIds.current();
         _safeMint(msg.sender, newTokenId);
@@ -62,14 +66,22 @@ contract GolffPet is ERC721Enumerable, Ownable {
         return newTokenId;
     }
 
+    function initClaim(address account) onlyOwner private {
+        require(totalSupply() + initAttributeIndex.length <= MAX_SPACE_SUPPLY, "GolffPet:claim would exceed max supply");
+        for (uint256 i ;i< initAttributeIndex.length;i++){
+            _tokenIds.increment();
+            uint256 newTokenId = _tokenIds.current();
+            _safeMint(account, newTokenId);
+            setAttributeIndexInner(newTokenId, initAttributeIndex[i]);
+            //claimHolders[account] = newTokenId;
+            claimTokenOwners[newTokenId] = account;
+            emit Claim(account, newTokenId);
+        }
+    }
+
     function isClaimed(address account) public view returns (bool) {
         require(account != address(0), 'GolffPet:account is the zero address');
         return claimHolders[account] != 0;
-    }
-
-    function isMinter(address account) public view returns (bool) {
-        require(account != address(0), 'GolffPet:account is the zero address');
-        return EnumerableSet.contains(minters, account);
     }
 
     function surplus() public view returns (uint256) {
@@ -104,37 +116,41 @@ contract GolffPet is ERC721Enumerable, Ownable {
         return index;
     }
 
-    function tokenURI(uint256 _tokenId) public view override returns (string memory) {
-        bytes memory tokenName = abi.encodePacked('Golff Pet #', Strings.toString(_tokenId));
-        bytes memory content = abi.encodePacked('{"name":"', tokenName, '"');
-        if (keccak256(abi.encodePacked(revealedCollectionBaseURL)) == keccak256(abi.encodePacked(''))) {
-            content = abi.encodePacked(content,
-                ', ',
-                '"description": "An unrevealed Ape Harbour Surfboard"',
-                ', ',
-                '"image": "', preRevealImageUrl, '"',
-                '}');
-        } else {
-            if (getBoardFactor(_tokenId) == boardFactor[2] || getBoardFactor(_tokenId) == boardFactor[3]) {
-                content = abi.encodePacked(content,
-                    ', ',
-                    '"description": "this is description"',
-                    ', ',
-                    '"attributes": [{"trait_type": "Combat Effectiveness", "value": "', getCombatEffectiveness(_tokenId), '"},{"trait_type": "Rarity", "value": "', getRarity(_tokenId), '"}]',
-                    ', ',
-                    '"image": "', revealedCollectionBaseURL, Strings.toString(_tokenId), '.gif"',
-                    '}');
+    function setAttributeIndexInner(uint256 tokenId,uint256 index) private returns (uint256) {
+        if (index == 1) {
+            uint256 count = boardFactorCount[index];
+            if (count < INFERIOR_TOKEN_COUNT) {
+                boardFactorCount[index] = count + 1;
             } else {
-                content = abi.encodePacked(content,
-                    ', ',
-                    '"description": "this is description"',
-                    ', ',
-                    '"attributes": [{"trait_type": "Combat Effectiveness", "value": "', getCombatEffectiveness(_tokenId), '"},{"trait_type": "Rarity", "value": "', getRarity(_tokenId), '"}]',
-                    ', ',
-                    '"image": "', revealedCollectionBaseURL, Strings.toString(_tokenId), '.png"',
-                    '}');
+                index = 0;
+            }
+        } else if (index == 2) {
+            uint256 count = boardFactorCount[index];
+            if (count < MEDIUM_TOKEN_COUNT) {
+                boardFactorCount[index] = count + 1;
+            } else {
+                index = 0;
+            }
+        } else if (index == 3) {
+            uint256 count = boardFactorCount[index];
+            if (count < HIGHER_TOKEN_COUNT) {
+                boardFactorCount[index] = count + 1;
+            } else {
+                index = 0;
             }
         }
+        attributeIndex[tokenId] = index;
+        return index;
+    }
+
+    function tokenURI(uint256 _tokenId) public view override returns (string memory) {
+        bytes memory imgUrl = abi.encodePacked(revealedCollectionBaseURL,toString(_tokenId),".png");
+        if (getBoardFactor(_tokenId) == boardFactor[2] || getBoardFactor(_tokenId) == boardFactor[3]) {
+            imgUrl = abi.encodePacked(revealedCollectionBaseURL,toString(_tokenId),".gif");
+        }
+
+        bytes memory content = abi.encodePacked('{"name":"Golff Pet #', toString(_tokenId), '","description": "To celebrate the first anniversary of Golff, \'Golff Pet NFT\' is hereby launched to bring exclusive rights and interests to holders. Golff users who meet specific criterias can generate different NFTs randomly. NFT Holders can join the Golff VIP community with the priority experience of Golff products, and get a long-term revenue bonus in the Golff ecology.","attributes": [{"trait_type": "Combat Effectiveness", "value": "', getCombatEffectiveness(_tokenId), '"},{"trait_type": "Rarity", "value": "', getRarity(_tokenId), '"}],"image": "', imgUrl, '"}');
+
         string memory result = string(
             abi.encodePacked(
                 "data:application/json;base64,",
@@ -201,9 +217,4 @@ contract GolffPet is ERC721Enumerable, Ownable {
         revealedCollectionBaseURL = string(abi.encodePacked('ipfs://', _ipfsHash, '/'));
     }
 
-    function addMinters(address[] memory account) public onlyOwner {
-        for (uint i; i < account.length; i++) {
-            EnumerableSet.add(minters, account[i]);
-        }
-    }
 }
