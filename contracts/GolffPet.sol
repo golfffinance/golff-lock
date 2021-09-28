@@ -7,11 +7,17 @@ import "@openzeppelin/contracts/utils/Counters.sol";
 import '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "./base64.sol";
+import "./IPoolLock.sol";
+import "./IGofVault.sol";
 
 contract GolffPet is ERC721Enumerable, Ownable {
 
     using Counters for Counters.Counter;
     Counters.Counter private _tokenIds;
+
+    address public pool_lock_address;
+
+    address public gof_vault_address;
 
     bytes32 public merkleRoot;
 
@@ -39,14 +45,15 @@ contract GolffPet is ERC721Enumerable, Ownable {
 
     mapping(uint256 => uint256) private boardFactorCount;
 
-    uint256[] private initAttributeIndex = [2,1,1,0,0,0,0,0,0,0];
+    uint256 private lockGofAmount = 500000000000000000000;
 
     event Claim(address indexed owner, uint256 tokenId);
 
-    constructor(address account,string memory _ipfsHash,bytes32 merkleRoot_ ) ERC721('Golff Pet', "Golff Pet") {
+    constructor(string memory _ipfsHash,bytes32 merkleRoot_ ,address pool_lock_address_, address gof_vault_address_) ERC721('Golff Pet', "Golff Pet") {
         merkleRoot = merkleRoot_;
         setRevealedCollectionBaseURL(_ipfsHash);
-        initClaim(account);
+        pool_lock_address =pool_lock_address_;
+        gof_vault_address = gof_vault_address_;
     }
 
     function claim(uint256 index, bytes32[] calldata merkleProof) public returns (uint256){
@@ -54,8 +61,15 @@ contract GolffPet is ERC721Enumerable, Ownable {
         require(!isClaimed(msg.sender), 'GolffPet:already claimed');
         uint256 amount = 1000000000000000000;
         bytes32 node = keccak256(abi.encodePacked(index, msg.sender, amount));
-        require(MerkleProof.verify(merkleProof, merkleRoot, node), 'MerkleDistributor: Invalid proof.');
-
+        require(MerkleProof.verify(merkleProof, merkleRoot, node), 'GolffPet: Invalid proof');
+        uint256 poolLockAmount = IPoolLock(pool_lock_address).lockBalance(msg.sender);
+        poolLockAmount = poolLockAmount + IPoolLock(pool_lock_address).balance(msg.sender);
+        if (poolLockAmount<lockGofAmount){
+            uint256 GtokenAmount = IGofVault(gof_vault_address).balanceOf(msg.sender);
+            require(GtokenAmount>0 , 'GolffPet: Gof pledge less than 500');
+            uint256 vaultAmount = GtokenAmount * IGofVault(gof_vault_address).getPricePerFullShare() /1e18;
+            require(vaultAmount>=lockGofAmount , 'GolffPet: Gof pledge less than 500');
+        }
         _tokenIds.increment();
         uint256 newTokenId = _tokenIds.current();
         _safeMint(msg.sender, newTokenId);
@@ -64,19 +78,6 @@ contract GolffPet is ERC721Enumerable, Ownable {
         claimTokenOwners[newTokenId] = msg.sender;
         emit Claim(msg.sender, newTokenId);
         return newTokenId;
-    }
-
-    function initClaim(address account) onlyOwner private {
-        require(totalSupply() + initAttributeIndex.length <= MAX_SPACE_SUPPLY, "GolffPet:claim would exceed max supply");
-        for (uint256 i ;i< initAttributeIndex.length;i++){
-            _tokenIds.increment();
-            uint256 newTokenId = _tokenIds.current();
-            _safeMint(account, newTokenId);
-            setAttributeIndexInner(newTokenId, initAttributeIndex[i]);
-            //claimHolders[account] = newTokenId;
-            claimTokenOwners[newTokenId] = account;
-            emit Claim(account, newTokenId);
-        }
     }
 
     function isClaimed(address account) public view returns (bool) {
@@ -116,32 +117,6 @@ contract GolffPet is ERC721Enumerable, Ownable {
         return index;
     }
 
-    function setAttributeIndexInner(uint256 tokenId,uint256 index) private returns (uint256) {
-        if (index == 1) {
-            uint256 count = boardFactorCount[index];
-            if (count < INFERIOR_TOKEN_COUNT) {
-                boardFactorCount[index] = count + 1;
-            } else {
-                index = 0;
-            }
-        } else if (index == 2) {
-            uint256 count = boardFactorCount[index];
-            if (count < MEDIUM_TOKEN_COUNT) {
-                boardFactorCount[index] = count + 1;
-            } else {
-                index = 0;
-            }
-        } else if (index == 3) {
-            uint256 count = boardFactorCount[index];
-            if (count < HIGHER_TOKEN_COUNT) {
-                boardFactorCount[index] = count + 1;
-            } else {
-                index = 0;
-            }
-        }
-        attributeIndex[tokenId] = index;
-        return index;
-    }
 
     function tokenURI(uint256 _tokenId) public view override returns (string memory) {
         bytes memory imgUrl = abi.encodePacked(revealedCollectionBaseURL,toString(_tokenId),".png");
@@ -175,7 +150,7 @@ contract GolffPet is ERC721Enumerable, Ownable {
         return rarity[attributeIndex[tokenId]];
     }
 
-    function pluck(uint256 tokenId) private view returns (uint256) {
+    function pluck(uint256 tokenId) public view returns (uint256) {
         uint256 rand = random(toString(tokenId));
         uint256 index = 0;
         uint256 greatness = rand % 41;
