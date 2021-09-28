@@ -1,0 +1,12 @@
+{
+	"name": "Golff Pet #1",
+	"description": "To celebrate the first anniversary of Golff, 'Golff Pet NFT' is hereby launched to bring exclusive rights and interests to holders. Golff users who meet specific criterias can generate different NFTs randomly. NFT Holders can join the Golff VIP community with the priority experience of Golff products, and get a long-term revenue bonus in the Golff ecology.",
+	"attributes": [{
+		"trait_type": "Combat Effectiveness",
+		"value": "500"
+	}, {
+		"trait_type": "Rarity",
+		"value": "90/99"
+	}],
+	"image": "ipfs://QmVBGk4weMdtmAXQdJxRRTYQmawdYjRhpFBndUScfSZd53/1.png"
+}
